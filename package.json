@@ -1,0 +1,33 @@
+{
+  "name": "PAI WHATSAPP COM BAILEYS",
+  "version": "1.0.0",
+  "main": "index.js",
+  "scripts": {
+    "test": "test",
+    "start": "cross-env AMBIENTE=production nodemon index",
+    "dev": "nodemon index.js"
+  },
+  "type": "module",
+  "author": "",
+  "license": "ISC",
+  "description": "",
+  "dependencies": {
+    "@ffmpeg/core": "^0.12.10",
+    "@ffmpeg/ffmpeg": "^0.12.15",
+    "@whiskeysockets/baileys": "^6.7.19",
+    "audio-decode": "^2.2.3",
+    "audiobuffer-to-wav": "^1.0.0",
+    "axios": "^1.11.0",
+    "dotenv": "^17.2.2",
+    "express": "^5.1.0",
+    "fluent-ffmpeg": "^2.1.3",
+    "get-audio-duration": "^4.0.1",
+    "multer": "^2.0.2",
+    "mysql-baileys": "^1.5.3",
+    "mysql2": "^3.14.3",
+    "pino": "^9.7.0",
+    "qrcode": "^1.5.4",
+    "socket.io": "^4.8.1",
+    "webm-to-wav-converter": "^1.1.0"
+  }
+}
