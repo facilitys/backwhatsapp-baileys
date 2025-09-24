@@ -60,7 +60,9 @@ const io = new Server(serversocket, {
             "http://172.20.18.49",
             "http://172.20.18.90:6001",
             "http://172.20.18.90:6002",
-            "http://172.20.16.38:6001"
+            "http://172.20.16.38:6001",
+            "http://172.20.16.38:6443",
+            "http://172.20.16.38:6444"
         ],
         methods: ["GET", "POST"],
         allowedHeaders: ["my-custom-header"],
