@@ -470,9 +470,10 @@ async function connectToWhatsApp(sessionId, idusuario) {
                             duration: videoMessage.seconds,
                             timestamp: new Date(message.messageTimestamp * 1000).toISOString(),
                             isFromUser: false,
-                            fromApp: (!message.status) ? false : true
+                            fromApp: (!message.status) ? false : true,
+                            idusuario: cli.idusuario
                         }
-                        const newMessageNotify = { remoteJid: message.key.remoteJid, pushName: message.pushName, text: 'text' }
+                        const newMessageNotify = { remoteJid: message.key.remoteJid, pushName: message.pushName, text: 'text', idusuario: cli.idusuario }
                         io.emit('newMessage', newMessage);
                         io.emit('newMessageNotify', newMessageNotify);
                     } catch (error) {
@@ -499,9 +500,10 @@ async function connectToWhatsApp(sessionId, idusuario) {
                             duration: audioMessage.seconds,
                             timestamp: new Date(message.messageTimestamp * 1000).toISOString(),
                             isFromUser: false,
-                            fromApp: (!message.status) ? false : true
+                            fromApp: (!message.status) ? false : true,
+                            idusuario: cli.idusuario
                         }
-                        const newMessageNotify = { remoteJid: message.key.remoteJid, pushName: message.pushName, text: 'text' }
+                        const newMessageNotify = { remoteJid: message.key.remoteJid, pushName: message.pushName, text: 'text' , idusuario: cli.idusuario }
 
                         io.emit('newMessage', newMessage);
                         io.emit('newMessageNotify', newMessageNotify);
@@ -531,9 +533,10 @@ async function connectToWhatsApp(sessionId, idusuario) {
                             timestamp: new Date(message.messageTimestamp * 1000).toISOString(),
                             isFromUser: false,
                             fromApp: (!message.status) ? false : true,
-                            caption: imageMessage.caption
+                            caption: imageMessage.caption || "",
+                            idusuario: cli.idusuario
                         }
-                        const newMessageNotify = { remoteJid: message.key.remoteJid, pushName: message.pushName, text: 'text' }
+                        const newMessageNotify = { remoteJid: message.key.remoteJid, pushName: message.pushName, text: 'text', idusuario: cli.idusuario }
                         io.emit('newMessage', newMessage);
                         io.emit('newMessageNotify', newMessageNotify);
                     } catch (error) {
@@ -591,10 +594,11 @@ async function connectToWhatsApp(sessionId, idusuario) {
                             timestamp: new Date(message.messageTimestamp * 1000).toISOString(),
                             isFromUser: false,
                             fromApp: (!message.status) ? false : true,
-                            caption: documentMessage.caption || ""
+                            caption: documentMessage.caption || "",
+                            idusuario: cli.idusuario
                         }
 
-                        const newMessageNotify = { remoteJid: message.key.remoteJid, pushName: message.pushName, text: 'text' }
+                        const newMessageNotify = { remoteJid: message.key.remoteJid, pushName: message.pushName, text: 'text', idusuario: cli.idusuario }
                         io.emit('newMessage', newMessage);
                         io.emit('newMessageNotify', newMessageNotify);
                     } catch (error) {
@@ -614,12 +618,13 @@ async function connectToWhatsApp(sessionId, idusuario) {
                         duration: '',
                         timestamp: new Date(message.messageTimestamp * 1000).toISOString(),
                         isFromUser: false,
-                        fromApp: (!message.status) ? false : true
+                        fromApp: (!message.status) ? false : true,
+                        idusuario: cli.idusuario
                     }
                     
                     if (message.message?.conversation) {
                         const text = message.message.conversation;
-                        const newMessageNotify = { remoteJid: message.key.remoteJid, pushName: message.pushName, text: text }
+                        const newMessageNotify = { remoteJid: message.key.remoteJid, pushName: message.pushName, text: text, idusuario: cli.idusuario }
                         io.emit('newMessage', newMessage);
                         io.emit('newMessageNotify', newMessageNotify);
                        
@@ -687,14 +692,14 @@ function listConnectedClients() {
 
 setInterval(listConnectedClients, 60000); // Lista a cada 60 segundos
 
-async function sendMessage(sessionId, recipientJid, text) {
+async function sendMessage(sessionId, recipientJid, text, idusuario) {
     console.log(`%c 🟢🟢🟢🟢 index.js:437 'sessionId, recipientJid, text' `, ' background-color:green; color: white; font-size: 16px;', 'Enviando mensagem da sessao: ', sessionId, ' parao numero: ', recipientJid, ' Mensagem:', text)
     const sock = clients.get(sessionId);
-    console.log(`%c🔴🔴🔴🔴🔴 index2.js:620 'socksocksock' `, ' background-color:red; color: white; font-size: 16px;', sock)
+    console.log(`%c🔴🔴🔴🔴🔴 index2.js:620 'socksocksock' `, ' background-color:red; color: white; font-size: 16px;', sock, idusuario)
     if (!sock) {
         //throw new Error(`Cliente WhatsApp para sessão ${sessionId} não está conectado.`);
-        console.log(`%c🔴🔴🔴🔴🔴 index2.js:642 'Cliente WhatsApp para sessão ${sessionId} não está conectado.' `, ' background-color:red; color: white; font-size: 16px;', 'Cliente WhatsApp para sessão ${sessionId} não está conectado.')
-        io.emit('sessaoDesconectada', sessionId);
+        console.log(`%c🔴🔴🔴🔴🔴 index2.js:642 'Cliente WhatsApp para sessão ${sessionId} e idusuario ${idusuario} não está conectado.' `, ' background-color:red; color: white; font-size: 16px;', 'Cliente WhatsApp para sessão ${sessionId} não está conectado.')
+        io.emit('sessaoDesconectada', { sessionId, idusuario });
         return
     }
     try {
@@ -735,6 +740,7 @@ async function sendMedia(sessionId, recipientJid, media, caption) {
 async function sendAudio(sessionId, recipientJid, audioBuffer, mediaPath, mimetype, duration) {
     const sock = clients.get(sessionId);
     if (!sock) {
+        
         throw new Error(`Cliente WhatsApp para sessão ${sessionId} não está conectado.`);
     }
     try {
@@ -825,7 +831,7 @@ io.on('connection', (socket) => {
     socket.on('sendMessage', (message) => { 
         let sessionId = message.numerotelefone.toString()
         console.log(`[1;45m 🟣🟣🟣🟣🟣 index.js:588 'message'`, message, ' [0m ')
-        sendMessage(sessionId, message.recipient_jid, message.message_content)
+        sendMessage(sessionId, message.recipient_jid, message.message_content, message.idusuario)
     });
 
     socket.on('redownloadAudio', async ({ messageId }) => {
@@ -855,7 +861,7 @@ io.on('connection', (socket) => {
                 sessionId: message[0].session_id,
                 message: message[0],
                 type: 'audio',
-                fileUrl: `https://localhost:3000/uploads/a/${fileName}`,
+                fileUrl: `${process.env.HOST}:${process.env.EXPRESS_PORT}/uploads/a/${fileName}`,
                 mimetype: audioMessage.mimetype,
                 duration: audioMessage.duration,
                 timestamp: new Date(message[0].timestamp * 1000).toISOString(),
@@ -899,7 +905,7 @@ io.on('connection', (socket) => {
                 sessionId: message[0].session_id,
                 message: message[0],
                 type: 'image',
-                fileUrl: `https://localhost:3000/uploads/m/${fileName}`,
+                fileUrl: `${process.env.HOST}:${process.env.EXPRESS_PORT}/uploads/m/${fileName}`,
                 mimetype: imageMessage.mimetype,
                 duration: 0,
                 timestamp: new Date(message[0].timestamp * 1000).toISOString(),
@@ -941,7 +947,7 @@ io.on('connection', (socket) => {
                 sessionId: message[0].session_id,
                 message: message[0],
                 type: 'video',
-                fileUrl: `https://localhost:3000/uploads/v/${fileName}`,
+                fileUrl: `${process.env.HOST}:${process.env.EXPRESS_PORT}/uploads/v/${fileName}`,
                 mimetype: videoMessage.mimetype,
                 duration: 0,
                 timestamp: new Date(message[0].timestamp * 1000).toISOString(),
@@ -1039,7 +1045,7 @@ io.on('connection', (socket) => {
                 sessionId: message[0].session_id,
                 message: message[0],
                 type: 'document',
-                fileUrl: `https://localhost:3000/uploads/d/${fileName}`,
+                fileUrl: `${process.env.HOST}:${process.env.EXPRESS_PORT}/uploads/d/${fileName}`,
                 mimetype: documentMessage.mimetype,
                 duration: documentMessage.duration,
                 timestamp: new Date(message[0].timestamp * 1000).toISOString(),
@@ -1273,6 +1279,7 @@ app.post('/sendmedia/:idusuario', uploadImage.single('image'), async (req, res) 
             res.status(500).json({ error: 'Falha ao enviar imagem' });
         }
     } catch (err) {
+         io.emit('sessaoDesconectada', { sessionId, idusuario });   
         console.error(`Erro ao processar imagem para ${sessionId}:`, err);
         res.status(500).json({ error: 'Erro ao enviar imagem', details: err.message });
     }
@@ -1311,7 +1318,7 @@ app.post('/sendaudio/:idusuario', uploadAudio.single('audio'), async (req, res) 
             // Lê o arquivo como buffer (recomendado pelo Baileys)
             const audioBuffer = await fspromises.readFile(mediaPath);
 
-            // const sentMessage = await sendAudio(sessionId, recipientJid, mediaPath, mimetype);
+
             const sentMessage = await sendAudio(sessionId, recipientJid, audioBuffer, mediaPath, mimetype, duration);
 
 
@@ -1321,8 +1328,7 @@ app.post('/sendaudio/:idusuario', uploadAudio.single('audio'), async (req, res) 
                 res.status(500).json({ error: 'Falha ao enviar áudio' });
             }
 
-            // // Envia o áudio
-            // const sentMessage = await sendAudio(sessionId, recipientJid, audioBuffer, mimetype);
+           
 
         } else {
             // Áudio via URL
@@ -1333,17 +1339,8 @@ app.post('/sendaudio/:idusuario', uploadAudio.single('audio'), async (req, res) 
             // mimetype = response.headers['content-type'];
         }
 
-        //const sentMessage = await sendAudio(sessionId, recipientJid, mediaPath, mimetype);
-        //    const sentMessage = await sendAudio(sessionId, recipientJid, audioBuffer, mimetype);
-
-        // if (sentMessage) {
-        //     // Opcional: Salve a mensagem no banco de dados aqui se precisar
-        //     // await savToDB(db, sentMessage, sessionId);
-        //     res.status(200).json({ message: 'Áudio enviado com sucesso', sentMessage });
-        // } else {
-        //     res.status(500).json({ error: 'Falha ao enviar áudio' });
-        // }
-    } catch (err) {
+    } catch (err) {    
+        io.emit('sessaoDesconectada', { sessionId, idusuario });    
         console.error(`Erro ao processar áudio para ${sessionId}:`, err);
         res.status(500).json({ error: 'Erro ao enviar áudio', details: err.message });
     }
@@ -1382,7 +1379,7 @@ app.post('/sendvideo/:idusuario', uploadVideo.single('video'), async (req, res) 
             // Lê o arquivo como buffer (recomendado pelo Baileys)
             const audioBuffer = await fspromises.readFile(mediaPath);
 
-            // const sentMessage = await sendAudio(sessionId, recipientJid, mediaPath, mimetype);
+            
             const sentMessage = await sendAudio(sessionId, recipientJid, audioBuffer, mediaPath, mimetype, duration);
 
 
@@ -1391,9 +1388,6 @@ app.post('/sendvideo/:idusuario', uploadVideo.single('video'), async (req, res) 
             } else {
                 res.status(500).json({ error: 'Falha ao enviar vídeo' });
             }
-
-            // // Envia o áudio
-            // const sentMessage = await sendAudio(sessionId, recipientJid, audioBuffer, mimetype);
 
         } else {
             // Áudio via URL
@@ -1404,16 +1398,7 @@ app.post('/sendvideo/:idusuario', uploadVideo.single('video'), async (req, res) 
             // mimetype = response.headers['content-type'];
         }
 
-        //const sentMessage = await sendAudio(sessionId, recipientJid, mediaPath, mimetype);
-        //    const sentMessage = await sendAudio(sessionId, recipientJid, audioBuffer, mimetype);
-
-        // if (sentMessage) {
-        //     // Opcional: Salve a mensagem no banco de dados aqui se precisar
-        //     // await savToDB(db, sentMessage, sessionId);
-        //     res.status(200).json({ message: 'Áudio enviado com sucesso', sentMessage });
-        // } else {
-        //     res.status(500).json({ error: 'Falha ao enviar áudio' });
-        // }
+      
     } catch (err) {
         console.error(`Erro ao processar vídeo para ${sessionId}:`, err);
         res.status(500).json({ error: 'Erro ao enviar vídeo', details: err.message });
@@ -1458,6 +1443,7 @@ app.post('/senddocument/:idusuario', uploadDocument, async (req, res) => {
             res.status(500).json({ error: 'Falha ao enviar documento' });
         }
     } catch (err) {
+        io.emit('sessaoDesconectada', { sessionId, idusuario });  
         console.error(`Erro ao processar documento para ${sessionId}:`, err);
         res.status(500).json({ error: 'Erro ao enviar documento', details: err.message });
     } finally {
