@@ -61,7 +61,7 @@ const io = new Server(serversocket, {
             "http://172.20.18.90:6001",
             "http://172.20.18.90:6002",
             "http://172.20.16.38:6001",            
-            "http://172.20.16.38:7030"
+            "https://172.20.16.38:7030"
         ],
         methods: ["GET", "POST"],
         allowedHeaders: ["my-custom-header"],
@@ -70,7 +70,7 @@ const io = new Server(serversocket, {
 });
 // Configuração do CORS para permitir apenas http://localhost:6001
 app.use(cors({
-    origin: ['http://172.20.18.90:6001', 'https://nuxt.localhost', 'https://localhost:6001', 'https://localhost:3002'],
+    origin: ['http://172.20.18.90:6001', 'https://nuxt.localhost', 'https://localhost:6001', 'https://localhost:3002', "https://172.20.16.38:7030"],
     methods: ['GET', 'POST', "PUT"], // Métodos permitidos
     allowedHeaders: ['Content-Type', 'Authorization'], // Cabeçalhos permitidos
     credentials: true // Permite envio de cookies, se necessário
