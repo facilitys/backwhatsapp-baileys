@@ -47,7 +47,7 @@ const serversocket = https.createServer(credentials, appsocket);
 const appserver = https.createServer(credentials, app);
 
 const dbService = new DatabaseService();
-
+let processandoqrcode = false;
 
 // serversocket é o servidor HTTP/HTTPS já criado
 const io = new Server(serversocket, {
@@ -224,7 +224,7 @@ async function connectToWhatsApp(sessionId, idusuario) {
                 connectTimeoutMs: 60000, // Timeout para conexão inicial
             },
         });
-        
+
 
         let connectionData = {
             sock,
@@ -273,6 +273,7 @@ async function connectToWhatsApp(sessionId, idusuario) {
 
                     if (attempts > 2) {
                         console.log(`🔴 Máximo de tentativas de QR Code atingido para ${sessionId}. Encerrando sessão.`);
+                        processandoqrcode = false
                         await cleanupSession(sessionId, sock, idusuario); // Força o logout da sessão
                         await removeCreds(); // Garante a limpeza das credenciais
                         // clients.delete(sessionId);
@@ -328,7 +329,7 @@ async function connectToWhatsApp(sessionId, idusuario) {
                 connectionData.retryCount = 0;
                 connectionData.connectedAt = Date.now();
                 clients.set(sessionId, connectionData);
-
+                
                 const user = sock.user;
                 if (user && user.id) {
                     const phoneNumber = user.id.split(':')[0]; // Extrai o número de telefone
@@ -375,6 +376,8 @@ async function connectToWhatsApp(sessionId, idusuario) {
                         }
                     }
                     console.log(`[1;45m 🟣🟣🟣🟣🟣 index2.js:233 'Conexão estabelecida' `, { sessionId: phoneNumber, status: 'connected' }, ' [0m ')
+                    processandoqrcode = false // libera o endpoint /iniciarsessao
+                    console.log(`%c 🟢🟣🟢🟡🟢🟢 index.js:378 'processandoqrcode' `,' background-color:green; color: white; font-size: 16px;', processandoqrcode)
                     io.emit('connectionStatus', { sessionId: sessionId, currentSessionId: phoneNumber, status: 'connected' });
                     dbService.saveSession({ idusuario, phoneNumber: phoneNumber, sessionId: sessionId })
                     //   console.log(`%c🟠🟠🟠🟠🟠 index2.js:235 'clients' `, ' background-color:orange; color: black; font-size: 16px;', clients)
@@ -387,7 +390,7 @@ async function connectToWhatsApp(sessionId, idusuario) {
 
             if (connection === 'close') {
                 const shouldReconnect = lastDisconnect?.error?.output?.statusCode !== DisconnectReason.loggedOut;
-                
+
                 console.log(`🟠Conexão fechada para ${sessionId}:`, lastDisconnect?.error, 'Reconectar:', shouldReconnect);
 
                 if (shouldReconnect) { // SE FOR DIFERENTE DE LOGOUT TENTA RECONECTAR
@@ -1213,7 +1216,16 @@ io.on('connection', (socket) => {
 // Endpoint para iniciar uma nova sessão
 // Uma sessionID aleatoria deve ser gerada e enviada no request
 app.post('/iniciarsessao', async (req, res) => {
+     
     const { sessionId, idusuario, numerotelefone } = req.body;
+    if (processandoqrcode) { // VERIFICA SE JA TEM UM QR SENDO PROCESSADO
+        return res.status(403).json({
+            success: false,
+            message: 'Servidor ocupado. Tente novamente após 1 minuto!',
+        });
+    }
+    
+    processandoqrcode = true
 
     if (!sessionId) {
         return res.status(400).json({ error: 'sessionId é obrigatório' });
@@ -1224,6 +1236,7 @@ app.post('/iniciarsessao', async (req, res) => {
     }
 
     try {
+
 
         // Busca se existe algum cliente com QR gerado, se enconttrar, não permite continuar (um qr de cada vez)
         const qrClient = [...clients.values()].find(c => c.qrcode && c.qrcode !== '');
@@ -1261,7 +1274,7 @@ app.post('/desconectar', async (req, res) => {
         await cleanupSession(sessionId.toString(), client.sock, idusuario); // Força o logout da sessão        
         res.status(200).json({ message: `Sessão ${sessionId} desconectada com sucesso` });
     } catch (err) {
-        
+
         res.status(500).json({ error: 'Erro ao desconectar sessão', details: err.message });
     }
 });
@@ -1766,10 +1779,10 @@ app.put('/updatecontato/:id/:idusuario', uploadDocument, async (req, res) => {
 
 process.on('SIGINT', async () => {
     console.log('\n🛑 Encerrando servidor graciosamente...');
-    
+
     const sessions = Array.from(clients.keys());
     console.log(`🔌 Desconectando ${sessions.length} sessão(ões)...`);
-    
+
     // Desconectar todas as sessões ativas
     for (const sessionId of sessions) {
         try {
@@ -1783,14 +1796,19 @@ process.on('SIGINT', async () => {
             console.error(`❌ Erro ao desconectar ${sessionId}:`, error.message);
         }
     }
-    
+
     console.log('✅ Servidor encerrado com sucesso');
     process.exit(0);
 });
 
 // Inicia o servidor Express
 appserver.listen(port, () => {
-    console.log(`✅ Servidor Express rodando na porta ${port}`);
+    
+     console.log('🚀 =======================================');
+    console.log(`📱 WhatsApp Multi-User API`);
+    console.log(`🌐 Servidor rodando na porta ${port}`);
+    console.log(`🔗 https://localhost:${port}`);
+    console.log('🚀 =======================================');
 
 });
 
