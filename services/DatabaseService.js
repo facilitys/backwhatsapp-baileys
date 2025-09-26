@@ -182,8 +182,8 @@ class DatabaseService {
       }
 
       const [result] = await db.execute(
-        'INSERT INTO sessoes (idusuario, numerotelefone) VALUES (?, ?)',
-        [sessao.idusuario, sessao.phoneNumber]
+        'INSERT INTO sessoes (idusuario, numerotelefone, sessionid) VALUES (?, ?, ?)',
+        [sessao.idusuario, sessao.phoneNumber, sessao.sessionId]
       );
       return result.insertId;
     } catch (err) {

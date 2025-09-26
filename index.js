@@ -29,8 +29,8 @@ import { authConfig } from './config/db.config.js';
 
 // Configuração do Express
 const app = express();
-const port =  process.env.EXPRESS_PORT;
-const sockeioport =  process.env.SOCKETIO_PORT;
+const port = process.env.EXPRESS_PORT;
+const sockeioport = process.env.SOCKETIO_PORT;
 const appsocket = express();
 const httpsapp = express();
 
@@ -60,7 +60,7 @@ const io = new Server(serversocket, {
             "http://172.20.18.49",
             "http://172.20.18.90:6001",
             "http://172.20.18.90:6002",
-            "http://172.20.16.38:6001",            
+            "http://172.20.16.38:6001",
             "https://172.20.16.38:7030"
         ],
         methods: ["GET", "POST"],
@@ -189,32 +189,26 @@ const tempSessionMap = new Map();
 // Contador de tentativas de reconexão por sessão
 const reconnectAttempts = new Map();
 
+// Map para rastrear tentativas de geração de QR Code
+const qrGenerationAttempts = new Map();
+
 async function connectToWhatsApp(sessionId, idusuario) {
     let version;
     try {
+
         // Verifica a versão mais recente do Baileys
         const { error, version: fetchedVersion } = await fetchLatestBaileysVersion();
-      
+
         if (error) {
             console.warn(`Erro no fetch de versão: ${error}. Usando versão manual.`);
             version = [2, 3000, 1023223821]; // Versão estável recente (ajuste com base em testes; verifique GitHub para atual)
         } else {
             version = fetchedVersion;
         }
-      
+
         // Configura o estado de autenticação no MySQL
         authConfig.session = sessionId
-          const { state, saveCreds, removeCreds } = await useMySQLAuthState(authConfig);
-        // const { state, saveCreds, removeCreds } = await useMySQLAuthState({
-        //     session: sessionId,
-        //     host: '172.20.18.49',
-        //     port: 3306,
-        //     user: 'roberto',
-        //     password: 'tecexecadm',
-        //     database: 'hml',
-        //     tableName: 'auth',
-        // });
-
+        const { state, saveCreds, removeCreds } = await useMySQLAuthState(authConfig);
 
         // Cria uma instância do cliente WhatsApp
         const sock = makeWASocket({
@@ -224,18 +218,71 @@ async function connectToWhatsApp(sessionId, idusuario) {
             },
             version: version,
             printQRInTerminal: false,
+            connectOptions: {
+                timeoutMs: 30000, // Aumenta o timeout para 30 segundos
+                maxRetries: 1, // Número de tentativas internas
+                connectTimeoutMs: 60000, // Timeout para conexão inicial
+            },
         });
+        
 
+        let connectionData = {
+            sock,
+            status: 'connecting',
+            qr: null,
+            qrString: null,
+            retryCount: 0,
+            idusuario,
+            qrcode: '',
+            numerotelefone: '',
+            conectado: false,
+            startTime: Date.now()
+        };
         // Armazena o cliente no Map com sessionId temporário
-        clients.set(sessionId, { sock, idusuario, qrcode: null, numerotelefone: '' });
-        tempSessionMap.set(sessionId, { idusuario, sessionId });
+        clients.set(sessionId, connectionData);
+        tempSessionMap.set(sessionId, { idusuario, sessionId, originalsessionId: sessionId });
 
         // Manipula atualizações de conexão
         sock.ev.on('connection.update', async (update) => {
             const { connection, lastDisconnect, qr } = update;
 
+            //    if (qr) {
+            //         try {
+            //             const qrFile = `qrcode_${sessionId}.png`;
+            //             await qrcode.toFile(qrFile, qr, { type: 'png' });
+            //             const qrCodeUrl = await qrcode.toDataURL(qr);
+            //             const cli = clients.get(sessionId);
+            //             if (cli) {
+            //                 cli.qrcode = qrCodeUrl;
+            //                 cli.qr = qrCodeUrl;
+            //                 cli.qrString = qrCodeUrl;
+            //                 clients.set(sessionId, cli);
+            //                 io.emit('qrCode', { sessionId, qrCode: qrCodeUrl, idusuario: cli.idusuario });
+            //                  console.log(`🟡🟡🟡🟡🟡 `, {sessionId, idusuario: cli.idusuario })
+            //             }
+            //         } catch (err) {
+            //             console.error(`Erro ao gerar QR Code para ${sessionId}:`, err);
+            //         }
+            //     }
+
             if (qr) {
                 try {
+                    const attempts = (qrGenerationAttempts.get(sessionId) || 0) + 1;
+                    qrGenerationAttempts.set(sessionId, attempts);
+                    console.log(`🟡 Tentativa de QR Code ${attempts}/3 para ${sessionId}`);
+
+                    if (attempts > 2) {
+                        console.log(`🔴 Máximo de tentativas de QR Code atingido para ${sessionId}. Encerrando sessão.`);
+                        await cleanupSession(sessionId, sock, idusuario); // Força o logout da sessão
+                        await removeCreds(); // Garante a limpeza das credenciais
+                        // clients.delete(sessionId);
+                        // tempSessionMap.delete(sessionId);
+                        // qrGenerationAttempts.delete(sessionId);
+                        // reconnectAttempts.delete(sessionId);
+                        io.emit('connectionStatus', { sessionId, status: 'qr_failed', idusuario });
+                        return;
+                    }
+
                     const qrFile = `qrcode_${sessionId}.png`;
                     await qrcode.toFile(qrFile, qr, { type: 'png' });
                     const qrCodeUrl = await qrcode.toDataURL(qr);
@@ -243,49 +290,96 @@ async function connectToWhatsApp(sessionId, idusuario) {
                     if (cli) {
                         cli.qrcode = qrCodeUrl;
                         clients.set(sessionId, cli);
-                        io.emit('qrCode', { sessionId, qrCode: qrCodeUrl, idusuario: cli.idusuario });
+                        io.emit(`qrCode${cli.idusuario}`, { sessionId, qrCode: qrCodeUrl, idusuario: cli.idusuario });
+                        console.log(`🟡 QR Code gerado para sessionId: ${sessionId}, idusuario: ${cli.idusuario}`);
                     }
                 } catch (err) {
                     console.error(`Erro ao gerar QR Code para ${sessionId}:`, err);
                 }
             }
+            // if (qr) {
+            //     console.log(`📱 [${sessionId}] QR Code gerado!`);
+
+            //     try {
+
+            //         const qrFile = `qrcode_${sessionId}.png`;
+            //         await qrcode.toFile(qrFile, qr, { type: 'png' });
+            //         const qrCodeUrl = await qrcode.toDataURL(qr);
+            //         connectionData.qr = qrCodeUrl;
+            //         connectionData.qrString = qrCodeUrl;
+            //         connectionData.qrcode = qrCodeUrl;
+            //         connectionData.status = 'qr_ready';
+            //         clients.set(sessionId, connectionData);
+
+            //         console.log(`✅ [${sessionId}] QR Code pronto para escaneamento`);
+            //     } catch (qrError) {
+            //         console.error(`❌ [${sessionId}] Erro ao gerar QR Code:`, qrError);
+            //         connectionData.qr = qr;
+            //         connectionData.status = 'qr_generated';
+            //         clients.set(sessionId, connectionData);
+            //     }
+            // }
 
             if (connection === 'open') {
+
+                connectionData.status = 'connected';
+                connectionData.qr = null;
+                connectionData.qrString = null;
+                connectionData.retryCount = 0;
+                connectionData.connectedAt = Date.now();
+                clients.set(sessionId, connectionData);
+
                 const user = sock.user;
                 if (user && user.id) {
                     const phoneNumber = user.id.split(':')[0]; // Extrai o número de telefone
-                    console.log(`🔵🔵🔵🔵🔵🔵🔵🔵 Conexão estabelecida para ${phoneNumber} (sessionId: ${sessionId})`);
-                    dbService.saveSession({idusuario,phoneNumber})
-                    // Atualiza o Map com o número de telefone como sessionId
+                    // // Verifica se o número de telefone já está em uso
+                    // const existingPhoneSession = [...clients.entries()].find(
+                    //     ([key, cli]) => cli.numerotelefone === phoneNumber
+                    // );
+                    // if (existingPhoneSession) {
+                    //     console.error(`⚪⚪⚪Número ${phoneNumber} já está em uso por outro idusuario: ${existingPhoneSession[1].idusuario}`);
+                    //     await cleanupSession(sessionId, sock, idusuario);
+                    //     await removeCreds()
+                    //     // clients.delete(sessionId);
+                    //     // tempSessionMap.delete(sessionId);
+                    //     io.emit('connectionStatus', { sessionId, status: 'failed', reason: 'phone_number_in_use' });
+                    //     return;
+                    // }
+                    console.log(`👤 [${sessionId}] Usuário: ${user.name} (${user.id})`);
+                    connectionData.user = {
+                        id: user.id,
+                        name: user.name
+                    };
+                    connectionData.numerotelefone = phoneNumber;
+                    clients.set(sessionId, connectionData);
+
+                    // Atualiza o Map com o número de telefone com o sessionId
                     const cli = clients.get(sessionId);
                     if (cli) {
                         cli.numerotelefone = phoneNumber;
+                        cli.conectado = true;
                         clients.set(sessionId, cli);
 
-                        // Se o sessionId inicial não for o número de telefone, atualiza o Map
+                        //Se o sessionId inicial não for o número de telefone, atualiza o Map
                         if (sessionId !== phoneNumber) {
                             clients.set(phoneNumber, cli);
                             clients.delete(sessionId);
-                            tempSessionMap.set(phoneNumber, { idusuario, sessionId });
+                            // tempSessionMap.set(phoneNumber, { idusuario, sessionId });
+                            tempSessionMap.set(phoneNumber, { idusuario, sessionId: phoneNumber, originalsessionId: sessionId });
                             tempSessionMap.delete(sessionId);
 
                             console.log(`🟡🟡🟡🟡🟡SessionId atualizado de ${sessionId} para ${phoneNumber}`);
                             // Atualiza o estado de autenticação no MySQL para o novo sessionId
-                            await useMySQLAuthState({
-                                session: phoneNumber,
-                                host: '172.20.18.49',
-                                port: 3306,
-                                user: 'roberto',
-                                password: 'tecexecadm',
-                                database: 'hml',
-                                tableName: 'auth',
-                            });
+                            authConfig.session = phoneNumber;
+                            await useMySQLAuthState(authConfig);
                         }
                     }
                     console.log(`[1;45m 🟣🟣🟣🟣🟣 index2.js:233 'Conexão estabelecida' `, { sessionId: phoneNumber, status: 'connected' }, ' [0m ')
                     io.emit('connectionStatus', { sessionId: sessionId, currentSessionId: phoneNumber, status: 'connected' });
+                    dbService.saveSession({ idusuario, phoneNumber: phoneNumber, sessionId: sessionId })
                     //   console.log(`%c🟠🟠🟠🟠🟠 index2.js:235 'clients' `, ' background-color:orange; color: black; font-size: 16px;', clients)
                     reconnectAttempts.delete(sessionId); // Reseta tentativas de reconexão
+                    qrGenerationAttempts.delete(sessionId);
                 } else {
                     console.log(`Não foi possível obter o número do usuário para ${sessionId}`);
                 }
@@ -293,9 +387,10 @@ async function connectToWhatsApp(sessionId, idusuario) {
 
             if (connection === 'close') {
                 const shouldReconnect = lastDisconnect?.error?.output?.statusCode !== DisconnectReason.loggedOut;
+                
                 console.log(`🟠Conexão fechada para ${sessionId}:`, lastDisconnect?.error, 'Reconectar:', shouldReconnect);
 
-                if (shouldReconnect) {
+                if (shouldReconnect) { // SE FOR DIFERENTE DE LOGOUT TENTA RECONECTAR
                     const attempts = (reconnectAttempts.get(sessionId) || 0) + 1;
                     const maxReconnectAttempts = 3;
                     if (attempts <= maxReconnectAttempts) {
@@ -304,13 +399,30 @@ async function connectToWhatsApp(sessionId, idusuario) {
                         setTimeout(() => connectToWhatsApp(sessionId, idusuario), 1000);
                     } else {
                         console.log(`🟠🟠🟠Máximo de tentativas de reconexão atingido para ${sessionId}`);
+                        try {
+                            await cleanupSession(sessionId, sock, idusuario);
+                            await removeCreds()
+                            console.log(`🟢 Sessão ${sessionId} encerrada com sucesso.`);
+                        } catch (err) {
+                            if (err.isBoom && err.output?.statusCode === 401) {
+                                console.log(`🟢 Logout intencional detectado para ${sessionId}.`);
+                            } else {
+                                console.error(`Erro inesperado ao encerrar sessão ${sessionId}:`, err);
+                            }
+                        }
+                        await removeCreds()
                         clients.delete(sessionId);
                         tempSessionMap.delete(sessionId);
                         reconnectAttempts.delete(sessionId);
+                        qrGenerationAttempts.delete(sessionId);
                     }
                 } else {
                     console.log(`🟠🟠🟠🟠Sessão ${sessionId} encerrada. Limpando credenciais e gerando novo QR Code.`);
-                    await removeCreds();
+                    try {
+                        await removeCreds(); // Garante a limpeza das credenciais
+                    } catch (err) {
+                        console.error(`Erro ao remover credenciais para ${sessionId}:`, err);
+                    }
                     clients.delete(sessionId);
                     // BUSCA O NUMERO DO TELEFONE DO IDSESSAO ORIGINAL
                     const result = [...tempSessionMap.entries()].find(([key, value]) => value.sessionId === sessionId);
@@ -402,7 +514,7 @@ async function connectToWhatsApp(sessionId, idusuario) {
 
                 // Busca o cliente no Map usando o sessionId original
                 let cli = clients.get(sessionId);
-
+                console.log(`%c🟡🟡🟡🟡🟡 index.js:516 'cli' `, ' background-color:yellow; color: black; font-size: 16px;', clients)
                 // Se o cliente não for encontrado ou não tiver numerotelefone, tenta encontrar pelo idusuario
                 if (!cli || !cli.numerotelefone) {
                     // // Procura uma entrada no tempSessionMap que corresponda ao idusuario
@@ -416,7 +528,12 @@ async function connectToWhatsApp(sessionId, idusuario) {
                     //     console.error(`Sessão para idusuario ${idusuario} não encontrada no tempSessionMap. Ignorando mensagem.`);
                     //     continue;
                     // }
-                    const result = [...tempSessionMap.entries()].find(([key, value]) => value.sessionId === sessionId);
+
+                    // Sessão para idusuario 5415 não encontrada no tempSessionMap tempSessionMap. Ignorando mensagem do histórico. sessionId: vs55ltbftdj Map(1) {
+                    //   '554896867595' => { idusuario: 5415, sessionId: '554896867595' }
+                    // }
+
+                    const result = [...tempSessionMap.entries()].find(([key, value]) => value.originalsessionId === sessionId);
 
                     if (result) {
                         const [key, value] = result;
@@ -424,14 +541,14 @@ async function connectToWhatsApp(sessionId, idusuario) {
                         cli = clients.get(currentSessionId);
 
                     } else {
-                        console.error(`Sessão para idusuario ${idusuario} não encontrada no tempSessionMap. Ignorando mensagem do histórico.`);
+                        console.error(`Sessão para idusuario ${idusuario} não encontrada no tempSessionMap tempSessionMap. Ignorando mensagem do histórico. sessionId: ${sessionId}`, tempSessionMap);
                         continue;
                     }
                 }
 
                 // Garante que o número de telefone esteja definido
                 if (!cli || !cli.numerotelefone) {
-                    console.warn(`Número de telefone não definido para ${currentSessionId}. Aguardando autenticação.`);
+                    console.warn(`🟠🟢Número de telefone não definido para ${currentSessionId}. Aguardando autenticação.`);
                     continue;
                 }
                 console.log(`%c 🟢🟢🟢🟢 index2.js:305 'cli' `, ' background-color:green; color: white; font-size: 16px;', cli.sock.user)
@@ -504,7 +621,7 @@ async function connectToWhatsApp(sessionId, idusuario) {
                             fromApp: (!message.status) ? false : true,
                             idusuario: cli.idusuario
                         }
-                        const newMessageNotify = { remoteJid: message.key.remoteJid, pushName: message.pushName, text: 'text' , idusuario: cli.idusuario }
+                        const newMessageNotify = { remoteJid: message.key.remoteJid, pushName: message.pushName, text: 'text', idusuario: cli.idusuario }
 
                         io.emit('newMessage', newMessage);
                         io.emit('newMessageNotify', newMessageNotify);
@@ -622,14 +739,14 @@ async function connectToWhatsApp(sessionId, idusuario) {
                         fromApp: (!message.status) ? false : true,
                         idusuario: cli.idusuario
                     }
-                    
+
                     if (message.message?.conversation) {
                         const text = message.message.conversation;
                         const newMessageNotify = { remoteJid: message.key.remoteJid, pushName: message.pushName, text: text, idusuario: cli.idusuario }
                         io.emit('newMessage', newMessage);
                         io.emit('newMessageNotify', newMessageNotify);
-                       
-                        
+
+
                     }
                     else if (message.message?.extendedTextMessage?.text) {
                         const text = message.message.extendedTextMessage.text;
@@ -672,6 +789,31 @@ async function connectToWhatsApp(sessionId, idusuario) {
     }
 }
 
+async function cleanupSession(sessionId, sock, idusuario) {
+    try {
+        await sock.logout();
+        console.log(`🟢 Sessão ${sessionId} encerrada com sucesso.`);
+    } catch (err) {
+        if (err.isBoom && err.output?.statusCode === 401) {
+            console.log(`🟢 Logout intencional detectado para ${sessionId}.`);
+        } else {
+            console.error(`Erro inesperado ao encerrar sessão ${sessionId}:`, err);
+        }
+    }
+    try {
+        await sock.end(); // Encerra a conexão do socket
+        console.log(`🟢 Socket ${sessionId} finalizado.`);
+    } catch (err) {
+        console.error(`Erro ao finalizar socket ${sessionId}:`, err);
+    }
+
+    clients.delete(sessionId);
+    tempSessionMap.delete(sessionId);
+    qrGenerationAttempts.delete(sessionId);
+    reconnectAttempts.delete(sessionId);
+    io.to(idusuario).emit('connectionStatus', { sessionId, status: 'failed', reason: 'session_terminated' });
+}
+
 // Função para iniciar uma nova sessão
 async function startSession(sessionId, idusuario) {
     try {
@@ -686,12 +828,15 @@ async function startSession(sessionId, idusuario) {
 // Função para listar clientes conectados
 function listConnectedClients() {
     console.log('🙂 Clientes conectados:');
+
     clients.forEach((client, sessionId) => {
-        console.log(`- ${sessionId} (Telefone: ${client.numerotelefone}, Usuário: ${client.idusuario})`);
+        // Mostra apenas os primeiros 10 caracteres do sessionId
+        console.log(`- ${sessionId} (Telefone: ${client.numerotelefone}, Usuário: ${client.idusuario}, Conectado: ${client.conectado}, Status: ${client.status}, QR: ${client.qr}, QRString: ${client.qrString}, RetryCount: ${client.retryCount}, Qrcode: ${client.qrcode.substring(0, 20)}, StartTime: ${client.startTime}, ConnectedAt: ${client.connectedAt}, User: ${JSON.stringify(client.user)})`);
+
     });
 }
 
-setInterval(listConnectedClients, 60000); // Lista a cada 60 segundos
+setInterval(listConnectedClients, 3000); // Lista a cada 60 segundos
 
 async function sendMessage(sessionId, recipientJid, text, idusuario) {
     console.log(`%c 🟢🟢🟢🟢 index.js:437 'sessionId, recipientJid, text' `, ' background-color:green; color: white; font-size: 16px;', 'Enviando mensagem da sessao: ', sessionId, ' parao numero: ', recipientJid, ' Mensagem:', text)
@@ -741,7 +886,7 @@ async function sendMedia(sessionId, recipientJid, media, caption) {
 async function sendAudio(sessionId, recipientJid, audioBuffer, mediaPath, mimetype, duration) {
     const sock = clients.get(sessionId);
     if (!sock) {
-        
+
         throw new Error(`Cliente WhatsApp para sessão ${sessionId} não está conectado.`);
     }
     try {
@@ -829,7 +974,7 @@ io.on('connection', (socket) => {
         console.log(`🙋 Cliente Socket.IO desconectado: ${socket.id}`);
     });
 
-    socket.on('sendMessage', (message) => { 
+    socket.on('sendMessage', (message) => {
         let sessionId = message.numerotelefone.toString()
         console.log(`[1;45m 🟣🟣🟣🟣🟣 index.js:588 'message'`, message, ' [0m ')
         sendMessage(sessionId, message.recipient_jid, message.message_content, message.idusuario)
@@ -968,12 +1113,12 @@ io.on('connection', (socket) => {
     socket.on('redownloadDocument', async ({ messageId }) => {
 
         const message = await dbService.getMessageById(messageId, 1)
-            
+
         try {
-             
+
             //const documentMessage = message[0].message.documentMessage || message[0].message?.documentWithCaptionMessage.message.documentMessage;
-             const documentMessage = JSON.parse(message[0].message_content).documentMessage || JSON.parse(message[0].message_content).documentWithCaptionMessage.message.documentMessage
-            
+            const documentMessage = JSON.parse(message[0].message_content).documentMessage || JSON.parse(message[0].message_content).documentWithCaptionMessage.message.documentMessage
+
             let fileExtension = 'bin';
             console.log(`%c🔴🔴🔴documentMessage.mimetype🔴🔴 index2.js:979 '' `, ' background-color:red; color: white; font-size: 16px;', documentMessage.mimetype)
             if (documentMessage.mimetype.includes('application/pdf')) {
@@ -1079,6 +1224,19 @@ app.post('/iniciarsessao', async (req, res) => {
     }
 
     try {
+
+        // Busca se existe algum cliente com QR gerado, se enconttrar, não permite continuar (um qr de cada vez)
+        const qrClient = [...clients.values()].find(c => c.qrcode && c.qrcode !== '');
+        if (qrClient) {
+            // Se encontrar, verifica se é do sessionId recebido
+            if (clients.get(sessionId) !== qrClient) {
+                return res.status(403).json({
+                    success: false,
+                    message: 'Servidor ocupado. Tente novamente após 1 minuto.',
+                });
+            }
+        }
+
         // AQUI RECEBE O ID DA SESSAO, ID DO USUARIO E O NUMERO DO TELEFONE DO WHATSAPP
         await connectToWhatsApp(sessionId, idusuario);
         res.status(200).json({ message: `Sessão ${sessionId} iniciada. Escaneie o QR Code em qrcode_${sessionId}.png` });
@@ -1086,6 +1244,139 @@ app.post('/iniciarsessao', async (req, res) => {
         res.status(500).json({ error: 'Erro ao iniciar sessão', details: err.message });
     }
 });
+
+app.post('/desconectar', async (req, res) => {
+    const { sessionId, idusuario } = req.body;
+    console.log(`[1;45m 🟣🟣🟣🟣🟣 index.js:1249 'clients'`, clients, ' [0m ')
+    if (!sessionId) {
+        return res.status(400).json({ error: 'sessionId é obrigatório' });
+    }
+
+    if (!clients.has(sessionId.toString())) {
+        return res.status(404).json({ error: `Sessão ${sessionId} não encontrada` });
+    }
+
+    try {
+        const client = clients.get(sessionId.toString());
+        await cleanupSession(sessionId.toString(), client.sock, idusuario); // Força o logout da sessão        
+        res.status(200).json({ message: `Sessão ${sessionId} desconectada com sucesso` });
+    } catch (err) {
+        
+        res.status(500).json({ error: 'Erro ao desconectar sessão', details: err.message });
+    }
+});
+
+
+
+// app.post('/session/start', async (req, res) => {
+//     try {
+//         const { sessionId, idusuario } = req.body;
+
+//         if (!sessionId) {
+//             return res.status(400).json({
+//                 success: false,
+//                 message: 'sessionId é obrigatório',
+//                 example: { sessionId: 'user123' }
+//             });
+//         }
+
+//         if (typeof sessionId !== 'string' || sessionId.trim().length === 0) {
+//             return res.status(400).json({
+//                 success: false,
+//                 message: 'sessionId deve ser uma string válida'
+//             });
+//         }
+
+//         const cleanSessionId = sessionId //.trim().replace(/[^a-zA-Z0-9_-]/g, '');
+
+//         // Verificar se sessão já existe
+//         if (clients.has(cleanSessionId)) {
+//             const existingConnection = clients.get(cleanSessionId);
+//             return res.status(400).json({
+//                 success: false,
+//                 message: 'Sessão já existe',
+//                 // status: existingConnection.status,
+//                 sessionId: cleanSessionId
+//             });
+//         }
+
+//         // Criar nova conexão
+//         console.log(`🚀 Iniciando nova sessão: ${cleanSessionId}`);
+
+//         // Iniciar conexão de forma assíncrona
+//         // createWhatsAppConnection(cleanSessionId).catch(error => {
+//         //     console.error(`❌ Erro na sessão ${cleanSessionId}:`, error);
+//         // });
+//         await connectToWhatsApp(sessionId, idusuario);
+//         res.json({
+//             success: true,
+//             message: 'Sessão iniciada com sucesso',
+//             sessionId: cleanSessionId,
+//             next_step: `GET /session/${cleanSessionId}/qr para obter QR Code`
+//         });
+
+//     } catch (error) {
+//         console.error('❌ Erro ao iniciar sessão:', error);
+//         res.status(500).json({
+//             success: false,
+//             message: 'Erro interno do servidor',
+//             error: error.message
+//         });
+//     }
+// });
+
+// Obter QR Code da sessão
+// app.get('/session/:sessionId/qr', (req, res) => {
+//     const { sessionId } = req.params;
+
+//     const connection = clients.get(sessionId);
+
+//     if (!connection) {
+//         return res.status(404).json({
+//             success: false,
+//             message: 'Sessão não encontrada',
+//             hint: `Use POST /session/start com sessionId: "${sessionId}"`
+//         });
+//     }
+
+//     // Busca se existe algum cliente com QR gerado, se enconttrar, não permite continuar (um qr de cada vez)
+//     const qrClient = [...clients.values()].find(c => c.qr && c.qr !== '');
+//     if (qrClient) {
+//         // Se encontrar, verifica se é do sessionId recebido
+//         if (clients.get(sessionId) !== qrClient) {
+//             return res.status(403).json({
+//                 success: false,
+//                 message: 'Não pode acessar o QR de outra sessão.'
+//             });
+//         }
+//     }
+
+//     if (connection.status === 'connected') {
+//         return res.json({
+//             success: true,
+//             message: 'Usuário já está conectado',
+//             status: 'connected',
+//             user: connection.user || null
+//         });
+//     }
+
+//     if (!connection.qr && !connection.qrString) {
+//         return res.json({
+//             success: false,
+//             message: 'QR Code ainda não foi gerado. Aguarde alguns segundos e tente novamente.',
+//             status: connection.status || 'initializing',
+//             waiting_time: Math.round((Date.now() - connection.startTime) / 1000)
+//         });
+//     }
+
+//     res.json({
+//         success: true,
+//         qr: connection.qr,
+//         qrString: connection.qrString, // Base64 data URL
+//         status: connection.status,
+//         message: 'QR Code pronto! Escaneie com seu WhatsApp.'
+//     });
+// });
 
 // Endpoint para sessão armazenada em memoria
 app.get('/sessoes/:idusuario', async (req, res) => {
@@ -1098,10 +1389,8 @@ app.get('/sessoes/:idusuario', async (req, res) => {
 
         for (const [chave, valor] of clients.entries()) {
             let item = { sessionId: chave, user: {}, qrcode: {}, idusuario: null, numerotelefone: null };
-            if(valor.idusuario)
-            {
-                if(valor.idusuario == idusuario)
-                {
+            if (valor.idusuario) {
+                if (valor.idusuario == idusuario) {
                     item.user = valor.sock.user || null;
                     item.idusuario = valor.idusuario || null;
                     item.numerotelefone = valor.numerotelefone || null;
@@ -1109,9 +1398,9 @@ app.get('/sessoes/:idusuario', async (req, res) => {
                     sessoes[chave] = item
                 }
 
-            }    
+            }
 
-        }        
+        }
 
         res.status(200).json({ sessoes: sessoes });
     } catch (err) {
@@ -1127,8 +1416,8 @@ app.get('/minhassessoes/:idusuario', async (req, res) => {
     try {
         let sessoes = {}
 
-       sessoes = await dbService.getSession(idusuario)      
-        res.status(200).json({ sessoes});
+        sessoes = await dbService.getSession(idusuario)
+        res.status(200).json({ sessoes });
     } catch (err) {
         res.status(500).json({ error: 'Erro ao buscar sessoes', details: err.message });
     }
@@ -1242,7 +1531,7 @@ app.get('/qrcode/:sessionId', async (req, res) => {
 app.post('/sendmedia/:idusuario', uploadImage.single('image'), async (req, res) => {
     console.log(`%c${new Date().toLocaleTimeString()} index.js:741 'req.body' `, ' background-color:green; color: white; font-size: 16px;', req.body)
     const { sessionId, recipientJid, caption, mediaUrl } = req.body;
-     const { idusuario } = req.params;
+    const { idusuario } = req.params;
     const file = req.file; // Arquivo enviado via multipart/form-data
 
     if (!sessionId || !recipientJid || !idusuario) {
@@ -1280,7 +1569,7 @@ app.post('/sendmedia/:idusuario', uploadImage.single('image'), async (req, res) 
             res.status(500).json({ error: 'Falha ao enviar imagem' });
         }
     } catch (err) {
-         io.emit('sessaoDesconectada', { sessionId, idusuario });   
+        io.emit('sessaoDesconectada', { sessionId, idusuario });
         console.error(`Erro ao processar imagem para ${sessionId}:`, err);
         res.status(500).json({ error: 'Erro ao enviar imagem', details: err.message });
     }
@@ -1289,8 +1578,8 @@ app.post('/sendmedia/:idusuario', uploadImage.single('image'), async (req, res) 
 app.post('/sendaudio/:idusuario', uploadAudio.single('audio'), async (req, res) => {
 
     // const { sessionId, recipientJid, idusuario, mediaUrl } = req.body;
-    const { sessionId, recipientJid,  duration } = req.body;
-     const { idusuario } = req.params;
+    const { sessionId, recipientJid, duration } = req.body;
+    const { idusuario } = req.params;
     const file = req.file; // Arquivo enviado via multipart/form-data
 
     if (!sessionId || !recipientJid) {
@@ -1329,7 +1618,7 @@ app.post('/sendaudio/:idusuario', uploadAudio.single('audio'), async (req, res) 
                 res.status(500).json({ error: 'Falha ao enviar áudio' });
             }
 
-           
+
 
         } else {
             // Áudio via URL
@@ -1340,8 +1629,8 @@ app.post('/sendaudio/:idusuario', uploadAudio.single('audio'), async (req, res) 
             // mimetype = response.headers['content-type'];
         }
 
-    } catch (err) {    
-        io.emit('sessaoDesconectada', { sessionId, idusuario });    
+    } catch (err) {
+        io.emit('sessaoDesconectada', { sessionId, idusuario });
         console.error(`Erro ao processar áudio para ${sessionId}:`, err);
         res.status(500).json({ error: 'Erro ao enviar áudio', details: err.message });
     }
@@ -1380,7 +1669,7 @@ app.post('/sendvideo/:idusuario', uploadVideo.single('video'), async (req, res) 
             // Lê o arquivo como buffer (recomendado pelo Baileys)
             const audioBuffer = await fspromises.readFile(mediaPath);
 
-            
+
             const sentMessage = await sendAudio(sessionId, recipientJid, audioBuffer, mediaPath, mimetype, duration);
 
 
@@ -1399,7 +1688,7 @@ app.post('/sendvideo/:idusuario', uploadVideo.single('video'), async (req, res) 
             // mimetype = response.headers['content-type'];
         }
 
-      
+
     } catch (err) {
         console.error(`Erro ao processar vídeo para ${sessionId}:`, err);
         res.status(500).json({ error: 'Erro ao enviar vídeo', details: err.message });
@@ -1444,7 +1733,7 @@ app.post('/senddocument/:idusuario', uploadDocument, async (req, res) => {
             res.status(500).json({ error: 'Falha ao enviar documento' });
         }
     } catch (err) {
-        io.emit('sessaoDesconectada', { sessionId, idusuario });  
+        io.emit('sessaoDesconectada', { sessionId, idusuario });
         console.error(`Erro ao processar documento para ${sessionId}:`, err);
         res.status(500).json({ error: 'Erro ao enviar documento', details: err.message });
     } finally {
@@ -1458,7 +1747,7 @@ app.post('/senddocument/:idusuario', uploadDocument, async (req, res) => {
 app.put('/updatecontato/:id/:idusuario', uploadDocument, async (req, res) => {
     const { sessionId, alias } = req.body;
     const { id, idusuario } = req.params;
-    
+
     // Validação dos parâmetros
     if (!sessionId || !id) {
         return res.status(400).json({ error: 'sessionId e id do contato são obrigatórios' });
@@ -1475,10 +1764,34 @@ app.put('/updatecontato/:id/:idusuario', uploadDocument, async (req, res) => {
     }
 });
 
+process.on('SIGINT', async () => {
+    console.log('\n🛑 Encerrando servidor graciosamente...');
+    
+    const sessions = Array.from(clients.keys());
+    console.log(`🔌 Desconectando ${sessions.length} sessão(ões)...`);
+    
+    // Desconectar todas as sessões ativas
+    for (const sessionId of sessions) {
+        try {
+            const connection = clients.get(sessionId);
+            if (connection && connection.sock) {
+                console.log(`📱 Desconectando: ${sessionId}`);
+                await cleanupSession(sessionId, connection.sock, connection.idusuario); // Força o logout da sessão
+                // await connection.sock.logout();
+            }
+        } catch (error) {
+            console.error(`❌ Erro ao desconectar ${sessionId}:`, error.message);
+        }
+    }
+    
+    console.log('✅ Servidor encerrado com sucesso');
+    process.exit(0);
+});
+
 // Inicia o servidor Express
 appserver.listen(port, () => {
     console.log(`✅ Servidor Express rodando na porta ${port}`);
-    
+
 });
 
 // Inicia o servidor Express
@@ -1492,4 +1805,4 @@ serversocket.listen(sockeioport, () => {
 
 // Inicia a conexão com o WhatsApp
 //connectToWhatsApp('dault',1).catch((err) => console.error('Erro na inicialização:', err));
-startSession('default', 1);
+//startSession('default', 1);
