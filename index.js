@@ -594,7 +594,7 @@ async function connectToWhatsApp(sessionId, idusuario) {
                             fromApp: (!message.status) ? false : true,
                             idusuario: cli.idusuario
                         }
-                        const newMessageNotify = { remoteJid: message.key.remoteJid, pushName: message.pushName, text: 'text', idusuario: cli.idusuario }
+                        const newMessageNotify = { remoteJid: message.key.remoteJid, pushName: message.pushName, text: imageMessage.caption || "", idusuario: cli.idusuario }
                         io.emit('newMessage', newMessage);
                         io.emit('newMessageNotify', newMessageNotify);
                     } catch (error) {
@@ -624,7 +624,7 @@ async function connectToWhatsApp(sessionId, idusuario) {
                             fromApp: (!message.status) ? false : true,
                             idusuario: cli.idusuario
                         }
-                        const newMessageNotify = { remoteJid: message.key.remoteJid, pushName: message.pushName, text: 'text', idusuario: cli.idusuario }
+                        const newMessageNotify = { remoteJid: message.key.remoteJid, pushName: message.pushName, text: imageMessage.caption || "", idusuario: cli.idusuario }
 
                         io.emit('newMessage', newMessage);
                         io.emit('newMessageNotify', newMessageNotify);
@@ -657,7 +657,7 @@ async function connectToWhatsApp(sessionId, idusuario) {
                             caption: imageMessage.caption || "",
                             idusuario: cli.idusuario
                         }
-                        const newMessageNotify = { remoteJid: message.key.remoteJid, pushName: message.pushName, text: 'text', idusuario: cli.idusuario }
+                        const newMessageNotify = { remoteJid: message.key.remoteJid, pushName: message.pushName, text: imageMessage.caption || "", idusuario: cli.idusuario }
                         io.emit('newMessage', newMessage);
                         io.emit('newMessageNotify', newMessageNotify);
                     } catch (error) {
@@ -719,7 +719,7 @@ async function connectToWhatsApp(sessionId, idusuario) {
                             idusuario: cli.idusuario
                         }
 
-                        const newMessageNotify = { remoteJid: message.key.remoteJid, pushName: message.pushName, text: 'text', idusuario: cli.idusuario }
+                        const newMessageNotify = { remoteJid: message.key.remoteJid, pushName: message.pushName, text: imageMessage.caption || "", idusuario: cli.idusuario }
                         io.emit('newMessage', newMessage);
                         io.emit('newMessageNotify', newMessageNotify);
                     } catch (error) {
