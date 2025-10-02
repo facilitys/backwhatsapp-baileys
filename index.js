@@ -52,17 +52,7 @@ let processandoqrcode = false;
 // serversocket é o servidor HTTP/HTTPS já criado
 const io = new Server(serversocket, {
     cors: {
-        origin: [
-            "https://localhost:6001",
-            "https://localhost:3002",
-            "https://nuxt.localhost",
-            "http://localhost",
-            "http://172.20.18.49",
-            "http://172.20.18.90:6001",
-            "http://172.20.18.90:6002",
-            "http://172.20.16.38:6001",
-            "https://172.20.16.38:7030"
-        ],
+        origin: process.env.CORS_ORIGINS ? process.env.CORS_ORIGINS.split(',') : ['http://172.20.18.90:6001', 'https://nuxt.localhost', 'https://localhost:6001', 'https://localhost:3002', "https://172.20.16.38:7030"],
         methods: ["GET", "POST"],
         allowedHeaders: ["my-custom-header"],
         credentials: true
@@ -70,7 +60,7 @@ const io = new Server(serversocket, {
 });
 // Configuração do CORS para permitir apenas http://localhost:6001
 app.use(cors({
-    origin: ['http://172.20.18.90:6001', 'https://nuxt.localhost', 'https://localhost:6001', 'https://localhost:3002', "https://172.20.16.38:7030"],
+     origin: process.env.CORS_ORIGINS ? process.env.CORS_ORIGINS.split(',') : ['http://172.20.18.90:6001', 'https://nuxt.localhost', 'https://localhost:6001', 'https://localhost:3002', "https://172.20.16.38:7030"],
     methods: ['GET', 'POST', "PUT"], // Métodos permitidos
     allowedHeaders: ['Content-Type', 'Authorization'], // Cabeçalhos permitidos
     credentials: true // Permite envio de cookies, se necessário
@@ -839,7 +829,7 @@ function listConnectedClients() {
     });
 }
 
-setInterval(listConnectedClients, 3000); // Lista a cada 60 segundos
+setInterval(listConnectedClients, process.env.INTEVALO_INFO_CLIENTESCONECTADOS); // Lista a cada 60 segundos
 
 async function sendMessage(sessionId, recipientJid, text, idusuario) {
     console.log(`%c 🟢🟢🟢🟢 index.js:437 'sessionId, recipientJid, text' `, ' background-color:green; color: white; font-size: 16px;', 'Enviando mensagem da sessao: ', sessionId, ' parao numero: ', recipientJid, ' Mensagem:', text)
@@ -1814,7 +1804,11 @@ appserver.listen(port, () => {
 
 // Inicia o servidor Express
 serversocket.listen(sockeioport, () => {
-    console.log(`✅ Servidor SOCKET rodando na porta ${sockeioport}`);
+    console.log('🚀 =======================================');
+    console.log(`✅ Servidor SOCKET `);
+    console.log(`🌐 Servidor rodando na porta ${sockeioport}`);
+    console.log(`🔗 https://localhost:${sockeioport}`);
+    console.log('🚀 =======================================');
 });
 // // Inicia o servidor Http
 // httpServer.listen(3002, () => {
